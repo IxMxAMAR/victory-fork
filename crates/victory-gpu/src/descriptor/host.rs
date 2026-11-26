@@ -998,11 +998,17 @@ fn view_stride(view: &View) -> Option<u32> {
 
 /// The table-of-strides entry of a slot that holds `view`, made or a null
 /// view of its kind: a buffer view's stride, 0 for a constant buffer view
-/// (shaders read it as one), `SLOT_STRIDES_SKIP` for anything else, which
-/// shaders that pick a buffer there read as nothing.
+/// (shaders read it as one) and for a buffer's own view (made without a
+/// description: its element size unknown), `SLOT_STRIDES_SKIP` for anything
+/// else, which shaders that pick a buffer there read as nothing.
 fn stride_entry(view: &View) -> u32 {
     match view {
         View::Constant(..) => 0,
+        View::Shader(r, None) | View::Unordered(r, _, None)
+            if crate::resource::buffer_bytes(*r as crate::object::This).is_some() =>
+        {
+            0
+        }
         _ => view_stride(view).unwrap_or(victory_shader::emit::SLOT_STRIDES_SKIP),
     }
 }
@@ -5106,6 +5112,16 @@ void BY_FLOATS_OR_NOT(uint3 id : SV_DispatchThreadID) {
         unsafe { (handles[1] as *mut [u32; 8]).write([0; 8]) };
         heap.mirror(1, handles[1], true);
         assert_eq!(heap.stride(1), Some(SKIP));
+    }
+
+    /// A buffer's own view (made without a description) is a buffer view
+    /// whose element size the host does not know: entry 0, as for every
+    /// buffer view before the table told texture slots apart.
+    #[test]
+    fn a_buffers_own_view_is_a_buffer_view_of_unknown_element_size() {
+        let buffer = crate::resource::test_buffer(256) as usize;
+        assert_eq!(stride_entry(&View::Shader(buffer, None)), 0);
+        assert_eq!(stride_entry(&View::Unordered(buffer, 0, None)), 0);
     }
 }
 
